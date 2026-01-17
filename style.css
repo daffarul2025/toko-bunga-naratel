@@ -1,0 +1,21 @@
+.filter-menu {
+    text-align: center;
+    margin: 20px 0;
+}
+
+.filter-menu button {
+    background-color: #ff85a2; /* Warna pink rose */
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    margin: 5px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: 0.3s;
+}
+
+.filter-menu button:hover {
+    background-color: #ff4d7d;
+    transform: scale(1.1); /* Efek membesar sedikit saat disentuh */
+}

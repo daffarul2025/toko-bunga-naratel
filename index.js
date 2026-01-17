@@ -2,7 +2,7 @@ const express = require('express');
 const { Pool } = require('pg');
 const app = express();
 
-// 1. Database Pool Configuration
+// 1. Database Configuration
 const pool = new Pool({
     user: 'postgres',
     host: 'localhost',
@@ -11,128 +11,60 @@ const pool = new Pool({
     port: 5432,
 });
 
-// Test koneksi database saat startup
-pool.connect()
-    .then(client => {
-        console.log('✅ Database connected successfully');
-        client.release();
-        
-        // Cek apakah tabel flowers ada
-        return pool.query("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'flowers')");
-    })
-    .then(result => {
-        if (result.rows[0].exists) {
-            console.log('✅ Tabel "flowers" ditemukan');
-            
-            // Hitung jumlah data
-            return pool.query('SELECT COUNT(*) FROM flowers');
-        } else {
-            console.log('❌ Tabel "flowers" TIDAK ditemukan!');
-            console.log('💡 Buat tabel dengan SQL berikut:');
-            console.log(`
-                CREATE TABLE flowers (
-                    id SERIAL PRIMARY KEY,
-                    nama_bunga VARCHAR(100) NOT NULL,
-                    kategori VARCHAR(50),
-                    harga INTEGER NOT NULL,
-                    stok INTEGER DEFAULT 0,
-                    deskripsi TEXT,
-                    gambar TEXT
-                );
-                
-                -- Insert sample data
-                INSERT INTO flowers (nama_bunga, kategori, harga, stok, gambar) VALUES
-                ('Mawar Merah', 'Mawar', 50000, 10, 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400&h=300&fit=crop'),
-                ('Melati Putih', 'Melati', 35000, 15, 'https://images.unsplash.com/photo-159603903067-bf0942abc837?w=400&h=300&fit=crop'),
-                ('Anggrek Bulan', 'Anggrek', 125000, 5, 'https://images.unsplash.com/photo-1566996694954-90b052c413c4?w=400&h=300&fit=crop');
-            `);
-        }
-    })
-    .then(result => {
-        if (result) {
-            console.log(`📊 Total data bunga: ${result.rows[0].count}`);
-        }
-    })
-    .catch(err => {
-        console.error('❌ Database connection error:', err.message);
-        console.log('💡 Troubleshooting:');
-        console.log('   1. Pastikan PostgreSQL service sedang berjalan');
-        console.log('   2. Cek password: "kamucantik12"');
-        console.log('   3. Cek database name: "db_toko_bunga"');
-        console.log('   4. Cek port: 5432 (default)');
-    });
-
 app.use(express.json());
 
-// 2. API Endpoint dengan fallback data
+// 2. API Endpoint
 app.get('/api/flowers', async (req, res) => {
+    const { kategori } = req.query;
     try {
-        console.log('🔍 Fetching data from database...');
-        const result = await pool.query('SELECT * FROM flowers ORDER BY id ASC');
-        
-        if (result.rows.length === 0) {
-            console.log('⚠️ Database kosong, memberikan data fallback');
-            
-            // Fallback data jika database kosong
-            const fallbackData = [
-                {
-                    id: 1,
-                    nama_bunga: 'Mawar Merah',
-                    kategori: 'Mawar',
-                    harga: 50000,
-                    stok: 10,
-                    gambar: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400&h=300&fit=crop'
-                },
-                {
-                    id: 2,
-                    nama_bunga: 'Melati Putih',
-                    kategori: 'Melati',
-                    harga: 35000,
-                    stok: 15,
-                    gambar: 'https://images.unsplash.com/photo-159603903067-bf0942abc837?w=400&h=300&fit=crop'
-                },
-                {
-                    id: 3,
-                    nama_bunga: 'Anggrek Bulan',
-                    kategori: 'Anggrek',
-                    harga: 125000,
-                    stok: 5,
-                    gambar: 'https://images.unsplash.com/photo-1566996694954-90b052c413c4?w=400&h=300&fit=crop'
-                }
-            ];
-            
-            return res.json(fallbackData);
+        let query = 'SELECT * FROM flowers';
+        let params = [];
+
+        if (kategori && kategori !== 'Semua') {
+            query += ' WHERE kategori = $1';
+            params.push(kategori);
         }
         
-        console.log(`✅ Data ditemukan: ${result.rows.length} item`);
+        query += ' ORDER BY id ASC';
+        const result = await pool.query(query, params);
+        
+        // Jika DB kosong, pakai fallback data dengan gambar yang benar
+        if (result.rows.length === 0 && (!kategori || kategori === 'Semua')) {
+            const fallbackData = [
+                { 
+                    id: 1, 
+                    nama_bunga: 'Mawar Merah', 
+                    kategori: 'Mawar', 
+                    harga: 50000, 
+                    stok: 10, 
+                    gambar: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400&h=300&fit=crop' 
+                },
+                { 
+                    id: 2, 
+                    nama_bunga: 'Melati Putih', 
+                    kategori: 'Melati', 
+                    harga: 35000, 
+                    stok: 15, 
+                    gambar: 'https://images.unsplash.com/photo-159603903067-bf0942abc837?w=400&h=300&fit=crop' 
+                },
+                { 
+                    id: 3, 
+                    nama_bunga: 'Anggrek Bulan', 
+                    kategori: 'Anggrek', 
+                    harga: 125000, 
+                    stok: 5, 
+                    gambar: 'https://images.unsplash.com/photo-1566996694954-90b052c413c4?w=400&h=300&fit=crop' 
+                }
+            ];
+            return res.json(fallbackData);
+        }
         res.json(result.rows);
-        
     } catch (err) {
-        console.error('❌ Database query error:', err.message);
-        
-        // Tetap berikan data fallback meski error
-        res.json([
-            {
-                id: 1,
-                nama_bunga: 'Mawar Merah',
-                kategori: 'Mawar',
-                harga: 50000,
-                stok: 10,
-                gambar: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400&h=300&fit=crop'
-            },
-            {
-                id: 2,
-                nama_bunga: 'Melati Putih',
-                kategori: 'Melati',
-                harga: 35000,
-                stok: 15,
-                gambar: 'https://images.unsplash.com/photo-159603903067-bf0942abc837?w=400&h=300&fit=crop'
-            }
-        ]);
+        res.status(500).json({ error: err.message });
     }
 });
 
-// 3. Halaman utama
+// 3. Halaman Utama dengan Sidebar SIMPLE
 app.get('/toko', (req, res) => {
     const html = `
     <!DOCTYPE html>
@@ -142,370 +74,503 @@ app.get('/toko', (req, res) => {
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-            body {
-                font-family: 'Segoe UI', Arial, sans-serif;
-                background: linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%);
+            * {
                 margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            }
+
+            body {
+                background: #fdf2f8;
+                color: #333;
+                min-height: 100vh;
+                position: relative;
+            }
+
+            /* OVERLAY untuk tutup sidebar */
+            .overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.3);
+                z-index: 998;
+            }
+
+            .overlay.active {
+                display: block;
+            }
+
+            /* HAMBURGER BUTTON SIMPLE */
+            .hamburger-btn {
+                position: fixed;
+                top: 20px;
+                left: 20px;
+                background: #db2777;
+                color: white;
+                border: none;
+                width: 50px;
+                height: 50px;
+                border-radius: 10px;
+                font-size: 1.5rem;
+                cursor: pointer;
+                z-index: 1001;
+                box-shadow: 0 4px 10px rgba(219, 39, 119, 0.3);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .hamburger-btn:hover {
+                background: #be185d;
+            }
+
+            /* SIDEBAR SEDERHANA */
+            .sidebar {
+                width: 250px;
+                background: white;
+                color: #333;
+                position: fixed;
+                height: 100vh;
+                left: -250px;
+                top: 0;
+                transition: left 0.3s ease;
+                z-index: 999;
+                box-shadow: 5px 0 20px rgba(0, 0, 0, 0.1);
+                overflow-y: auto;
+            }
+
+            .sidebar.open {
+                left: 0;
+            }
+
+            .logo-section {
+                padding: 30px 20px;
+                background: linear-gradient(135deg, #db2777, #be185d);
+                color: white;
+                text-align: center;
+                border-bottom: 3px solid #fce7f3;
+            }
+
+            .logo-section h1 {
+                font-size: 1.8rem;
+                margin-bottom: 5px;
+            }
+
+            .logo-section p {
+                font-size: 0.9rem;
+                opacity: 0.9;
+            }
+
+            /* MENU SIMPLE */
+            .menu {
+                padding: 20px 0;
+            }
+
+            .menu-title {
+                padding: 10px 20px;
+                color: #6b7280;
+                font-size: 0.9rem;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                margin-bottom: 10px;
+            }
+
+            .menu-item {
+                padding: 15px 25px;
+                display: flex;
+                align-items: center;
+                cursor: pointer;
+                transition: all 0.2s;
+                border-left: 4px solid transparent;
+            }
+
+            .menu-item:hover {
+                background: #fdf2f8;
+                color: #db2777;
+            }
+
+            .menu-item.active {
+                background: #fce7f3;
+                color: #db2777;
+                border-left: 4px solid #db2777;
+                font-weight: 600;
+            }
+
+            .menu-item i {
+                margin-right: 12px;
+                width: 20px;
+                text-align: center;
+            }
+
+            /* MAIN CONTENT */
+            .main-content {
                 padding: 20px;
+                transition: margin-left 0.3s ease;
                 min-height: 100vh;
             }
-            
-            .container {
-                max-width: 1200px;
-                margin: 0 auto;
-            }
-            
-            header {
+
+            .header {
                 text-align: center;
-                padding: 30px;
+                margin-bottom: 40px;
+                padding: 30px 20px;
                 background: white;
                 border-radius: 20px;
-                margin-bottom: 30px;
-                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+                box-shadow: 0 8px 20px rgba(0, 0, 0, 0.05);
+                max-width: 1000px;
+                margin-left: auto;
+                margin-right: auto;
             }
-            
-            h1 {
+
+            .header h2 {
                 color: #db2777;
-                margin: 0;
-                font-size: 2.5rem;
+                font-size: 2.2rem;
+                margin-bottom: 10px;
             }
-            
-            .subtitle {
-                color: #666;
+
+            .header p {
+                color: #6b7280;
                 font-size: 1.1rem;
-                margin-top: 10px;
             }
-            
-            .status-bar {
-                background: white;
-                padding: 15px 25px;
-                border-radius: 10px;
-                margin-bottom: 25px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                box-shadow: 0 3px 10px rgba(0,0,0,0.05);
-            }
-            
-            .status {
-                display: flex;
-                align-items: center;
-                gap: 10px;
-            }
-            
-            .status-dot {
-                width: 12px;
-                height: 12px;
-                border-radius: 50%;
-                background: #10b981;
-                animation: pulse 2s infinite;
-            }
-            
-            @keyframes pulse {
-                0% { opacity: 1; }
-                50% { opacity: 0.5; }
-                100% { opacity: 1; }
-            }
-            
-            .flowers-container {
+
+            /* FLOWER CARDS */
+            .flowers-grid {
                 display: grid;
                 grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
                 gap: 25px;
-                padding: 20px 0;
+                max-width: 1000px;
+                margin: 0 auto;
             }
-            
-            .flower-card {
+
+            .card {
                 background: white;
                 border-radius: 15px;
                 overflow: hidden;
-                box-shadow: 0 8px 20px rgba(0,0,0,0.1);
-                transition: transform 0.3s ease, box-shadow 0.3s ease;
+                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+                transition: transform 0.3s;
+                border: 1px solid #fce7f3;
             }
-            
-            .flower-card:hover {
+
+            .card:hover {
                 transform: translateY(-5px);
-                box-shadow: 0 15px 30px rgba(0,0,0,0.15);
+                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
             }
-            
-            .flower-image {
+
+            .card-img {
                 width: 100%;
                 height: 200px;
                 object-fit: cover;
-                background: #f3f4f6;
+                background: #f3f4f6; /* Fallback jika gambar error */
+                display: block;
             }
-            
-            .flower-details {
+
+            .card-info {
                 padding: 20px;
+                text-align: center;
             }
-            
-            .flower-name {
-                font-size: 1.4rem;
-                color: #333;
-                margin: 0 0 10px 0;
-            }
-            
-            .flower-price {
+
+            .card-info h3 {
+                color: #1f2937;
                 font-size: 1.3rem;
-                color: #dc2626;
+                margin-bottom: 10px;
+                min-height: 40px;
+            }
+
+            .card-price {
+                color: #db2777;
                 font-weight: bold;
-                margin: 10px 0;
+                font-size: 1.3rem;
+                margin-bottom: 10px;
             }
-            
-            .flower-stock {
-                color: #666;
-                margin: 10px 0;
+
+            .card-stock {
+                color: #6b7280;
+                font-size: 0.95rem;
+                margin-bottom: 15px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 5px;
             }
-            
+
             .buy-btn {
                 width: 100%;
                 padding: 12px;
-                background: linear-gradient(to right, #ec4899, #db2777);
-                color: white;
                 border: none;
-                border-radius: 8px;
-                font-size: 1rem;
+                background: #db2777;
+                color: white;
                 font-weight: bold;
+                font-size: 1rem;
                 cursor: pointer;
-                margin-top: 15px;
-                transition: all 0.3s ease;
+                transition: background 0.3s;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 8px;
             }
-            
+
             .buy-btn:hover {
-                background: linear-gradient(to right, #db2777, #be185d);
-                transform: scale(1.02);
+                background: #be185d;
             }
-            
+
+            /* LOADING STATE */
             .loading {
                 text-align: center;
-                padding: 40px;
+                padding: 50px;
                 font-size: 1.2rem;
-                color: #666;
+                color: #6b7280;
+                grid-column: 1 / -1;
             }
-            
+
             .spinner {
                 border: 4px solid #f3f3f3;
-                border-top: 4px solid #ec4899;
+                border-top: 4px solid #db2777;
                 border-radius: 50%;
                 width: 40px;
                 height: 40px;
                 animation: spin 1s linear infinite;
-                margin: 0 auto 20px auto;
+                margin: 0 auto 20px;
             }
-            
+
             @keyframes spin {
                 0% { transform: rotate(0deg); }
                 100% { transform: rotate(360deg); }
             }
-            
-            .error-box {
-                background: #fee2e2;
-                color: #dc2626;
-                padding: 20px;
-                border-radius: 10px;
-                text-align: center;
-                margin: 20px;
+
+            /* RESPONSIVE */
+            @media (max-width: 768px) {
+                .sidebar {
+                    width: 220px;
+                    left: -220px;
+                }
+                
+                .hamburger-btn {
+                    left: 15px;
+                    top: 15px;
+                    width: 45px;
+                    height: 45px;
+                }
+                
+                .header {
+                    padding: 20px;
+                    margin-top: 60px;
+                }
+                
+                .header h2 {
+                    font-size: 1.8rem;
+                }
+                
+                .flowers-grid {
+                    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+                    gap: 20px;
+                }
             }
-            
-            footer {
-                text-align: center;
-                padding: 30px;
-                color: #666;
-                margin-top: 40px;
-                border-top: 1px solid #eee;
-            }
-            
-            .debug-info {
-                background: #f8fafc;
-                padding: 15px;
-                border-radius: 10px;
-                margin-top: 20px;
-                font-size: 0.9rem;
-                color: #64748b;
-                font-family: monospace;
+
+            @media (max-width: 480px) {
+                .flowers-grid {
+                    grid-template-columns: 1fr;
+                }
+                
+                .header {
+                    margin-top: 70px;
+                    padding: 15px;
+                }
             }
         </style>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     </head>
     <body>
-        <div class="container">
-            <header>
-                <h1>🌸 Toko Bunga Naratel 🌸</h1>
-                <p class="subtitle">Bunga terbaik untuk momen spesial Anda</p>
-            </header>
-            
-            <div class="status-bar">
-                <div class="status">
-                    <div class="status-dot"></div>
-                    <span>Status: <strong>Online</strong></span>
-                </div>
-                <div id="data-count">Memuat data...</div>
+        <!-- OVERLAY untuk tutup sidebar -->
+        <div class="overlay" id="overlay" onclick="closeSidebar()"></div>
+
+        <!-- HAMBURGER BUTTON -->
+        <button class="hamburger-btn" onclick="toggleSidebar()">
+            <i class="fas fa-bars"></i>
+        </button>
+
+        <!-- SIDEBAR MENU SIMPLE -->
+        <div class="sidebar" id="sidebar">
+            <div class="logo-section">
+                <h1>Naratel</h1>
+                <p>Toko Bunga Premium</p>
             </div>
             
-            <div id="flowers-list" class="flowers-container">
+            <div class="menu">
+                <div class="menu-title">KATEGORI</div>
+                <div class="menu-item active" onclick="loadFlowers('Semua', this)">
+                    <i class="fas fa-th-large"></i>
+                    <span>Semua Bunga</span>
+                </div>
+                <div class="menu-item" onclick="loadFlowers('Mawar', this)">
+                    <i class="fas fa-heart"></i>
+                    <span>Mawar</span>
+                </div>
+                <div class="menu-item" onclick="loadFlowers('Melati', this)">
+                    <i class="fas fa-star"></i>
+                    <span>Melati</span>
+                </div>
+                <div class="menu-item" onclick="loadFlowers('Anggrek', this)">
+                    <i class="fas fa-leaf"></i>
+                    <span>Anggrek</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- MAIN CONTENT -->
+        <div class="main-content">
+            <div class="header">
+                <h2>🌸 Toko Bunga Naratel 🌸</h2>
+                <p>Koleksi Bunga Segar & Cantik untuk Setiap Momen</p>
+            </div>
+
+            <div id="flowers-list" class="flowers-grid">
                 <div class="loading">
                     <div class="spinner"></div>
-                    <p>Memuat katalog bunga...</p>
+                    <p>Memuat bunga...</p>
                 </div>
             </div>
-            
-            <div class="debug-info">
-                <p><strong>Debug Info:</strong></p>
-                <p id="debug-status">Status: Loading...</p>
-                <p id="debug-data">Data: Waiting...</p>
-            </div>
-            
-            <footer>
-                <p>© 2024 Toko Bunga Naratel | Dibuat dengan ❤️</p>
-            </footer>
         </div>
-        
+
         <script>
-            console.log('🔄 Script mulai berjalan...');
-            
-            async function loadFlowers() {
-                const flowersList = document.getElementById('flowers-list');
-                const dataCount = document.getElementById('data-count');
-                const debugStatus = document.getElementById('debug-status');
-                const debugData = document.getElementById('debug-data');
+            // Fungsi toggle sidebar
+            function toggleSidebar() {
+                const sidebar = document.getElementById('sidebar');
+                const overlay = document.getElementById('overlay');
+                const hamburgerIcon = document.querySelector('.hamburger-btn i');
                 
+                sidebar.classList.toggle('open');
+                overlay.classList.toggle('active');
+                
+                // Ganti icon hamburger
+                if (sidebar.classList.contains('open')) {
+                    hamburgerIcon.className = 'fas fa-bars';
+                }
+            }
+
+            // Fungsi tutup sidebar
+            function closeSidebar() {
+                const sidebar = document.getElementById('sidebar');
+                const overlay = document.getElementById('overlay');
+                
+                sidebar.classList.remove('open');
+                overlay.classList.remove('active');
+            }
+
+            // Tutup sidebar jika klik ESC
+            document.addEventListener('keydown', function(event) {
+                if (event.key === 'Escape') {
+                    closeSidebar();
+                }
+            });
+
+            // Fungsi load flowers dengan filter
+            async function loadFlowers(kategori = 'Semua', element = null) {
+                // Update menu aktif
+                if(element) {
+                    document.querySelectorAll('.menu-item').forEach(item => {
+                        item.classList.remove('active');
+                    });
+                    element.classList.add('active');
+                }
+
+                const list = document.getElementById('flowers-list');
+                list.innerHTML = '<div class="loading"><div class="spinner"></div><p>Mencari bunga cantik...</p></div>';
+
+                // Tutup sidebar setelah pilih menu
+                closeSidebar();
+
                 try {
-                    debugStatus.textContent = 'Status: Fetching data from /api/flowers...';
-                    console.log('📡 Mengambil data dari API...');
-                    
-                    const response = await fetch('/api/flowers');
-                    
-                    debugStatus.textContent = 'Status: Response received - ' + response.status;
-                    console.log('📥 Response:', response.status, response.statusText);
+                    const response = await fetch('/api/flowers?kategori=' + kategori);
                     
                     if (!response.ok) {
-                        throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+                        throw new Error('Network response was not ok');
                     }
                     
                     const flowers = await response.json();
-                    
-                    debugStatus.textContent = 'Status: Data parsed successfully';
-                    debugData.textContent = 'Data: ' + flowers.length + ' items found';
-                    console.log('✅ Data diterima:', flowers);
-                    
-                    // Update count
-                    dataCount.textContent = 'Total: ' + flowers.length + ' bunga tersedia';
-                    
-                    if (flowers.length === 0) {
-                        flowersList.innerHTML = '<div class="error-box">⚠️ Tidak ada data bunga tersedia</div>';
+                    console.log('Data bunga:', flowers); // Debug log
+
+                    if (!flowers || flowers.length === 0) {
+                        list.innerHTML = '<div class="loading"><p>😢 Tidak ada bunga dalam kategori ini</p></div>';
                         return;
                     }
-                    
-                    // Clear loading
-                    flowersList.innerHTML = '';
-                    
-                    // Render each flower
-                    flowers.forEach(flower => {
+
+                    list.innerHTML = '';
+                    flowers.forEach(f => {
+                        // Pastikan URL gambar valid
+                        let imageUrl = f.gambar;
+                        if (!imageUrl || imageUrl.includes('null')) {
+                            // Gambar default berdasarkan kategori
+                            if (f.kategori === 'Mawar') {
+                                imageUrl = 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400&h=300&fit=crop';
+                            } else if (f.kategori === 'Melati') {
+                                imageUrl = 'https://images.unsplash.com/photo-159603903067-bf0942abc837?w=400&h=300&fit=crop';
+                            } else if (f.kategori === 'Anggrek') {
+                                imageUrl = 'https://images.unsplash.com/photo-1566996694954-90b052c413c4?w=400&h=300&fit=crop';
+                            } else {
+                                imageUrl = 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400&h=300&fit=crop';
+                            }
+                        }
+
+                        // Pastikan URL memiliki http/https
+                        if (!imageUrl.startsWith('http')) {
+                            imageUrl = 'https://' + imageUrl;
+                        }
+
                         const card = document.createElement('div');
-                        card.className = 'flower-card';
-                        
-                        const imageUrl = flower.gambar || 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400&h=300&fit=crop';
-                        const name = flower.nama_bunga || 'Bunga';
-                        const price = flower.harga ? 'Rp ' + flower.harga.toLocaleString('id-ID') : 'Rp 0';
-                        const stock = flower.stok || 0;
-                        
+                        card.className = 'card';
                         card.innerHTML = \`
-                            <img src="\${imageUrl}" alt="\${name}" class="flower-image"
-                                 onerror="this.src='https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400&h=300&fit=crop'">
-                            <div class="flower-details">
-                                <h3 class="flower-name">\${name}</h3>
-                                <p class="flower-price">\${price}</p>
-                                <p class="flower-stock">📦 Stok: \${stock} tersedia</p>
-                                <button class="buy-btn" onclick="buyFlower(\${flower.id}, '\${name.replace(/'/g, "\\'")}')">
-                                    🛒 Beli Sekarang
-                                </button>
+                            <img 
+                                src="\${imageUrl}" 
+                                alt="\${f.nama_bunga}" 
+                                class="card-img"
+                                onerror="this.src='https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400&h=300&fit=crop'"
+                            >
+                            <div class="card-info">
+                                <h3>\${f.nama_bunga || 'Bunga Cantik'}</h3>
+                                <p class="card-price">Rp \${(f.harga || 0).toLocaleString('id-ID')}</p>
+                                <p class="card-stock">
+                                    <i class="fas fa-box"></i> Stok: \${f.stok || 0} tersedia
+                                </p>
                             </div>
-                        \`;
-                        
-                        flowersList.appendChild(card);
-                    });
-                    
-                    console.log('🎨 UI berhasil dirender');
-                    
-                } catch (error) {
-                    console.error('❌ Error:', error);
-                    
-                    debugStatus.textContent = 'Status: ERROR - ' + error.message;
-                    debugData.textContent = 'Data: Failed to load';
-                    
-                    flowersList.innerHTML = \`
-                        <div class="error-box">
-                            <h3>❌ Gagal memuat data</h3>
-                            <p>\${error.message}</p>
-                            <p>Silakan coba beberapa cara:</p>
-                            <ol style="text-align: left; margin: 15px 0;">
-                                <li>Refresh halaman ini (F5)</li>
-                                <li>Cek koneksi database</li>
-                                <li>Buka <a href="/api/flowers" target="_blank">/api/flowers</a> untuk test API</li>
-                            </ol>
-                            <button class="buy-btn" onclick="location.reload()" style="background: #3b82f6; margin-top: 10px;">
-                                🔄 Coba Lagi
+                            <button class="buy-btn" onclick="beliBunga(\${f.id}, '\${f.nama_bunga}')">
+                                <i class="fas fa-shopping-cart"></i> Beli Sekarang
                             </button>
-                        </div>
-                    \`;
-                    
-                    dataCount.textContent = 'Error loading data';
+                        \`;
+                        list.appendChild(card);
+                    });
+                } catch (error) {
+                    console.error('Error loading flowers:', error);
+                    list.innerHTML = '<div class="loading"><p>❌ Gagal memuat data bunga</p><p style="font-size:0.9rem;color:#9ca3af;">' + error.message + '</p></div>';
                 }
             }
-            
-            function buyFlower(id, name) {
-                alert('🎉 Terima kasih! Anda membeli: ' + name + '\\nID: ' + id + '\\n\\nFitur pembelian akan segera tersedia!');
+
+            // Fungsi beli bunga
+            function beliBunga(id, nama) {
+                alert(\`🌸 Pesanan Berhasil!\\n\\n✿ Anda telah memilih: \${nama}\\n✿ ID Produk: \${id}\\n\\nSilakan lanjut ke pembayaran.\`);
             }
-            
-            // Load when page is ready
+
+            // Load semua bunga saat pertama kali buka
             document.addEventListener('DOMContentLoaded', function() {
-                console.log('📄 DOM siap, mulai load data...');
                 loadFlowers();
             });
-            
-            // Manual refresh button (optional)
-            window.refreshData = function() {
-                console.log('🔄 Manual refresh...');
-                loadFlowers();
-            };
         </script>
     </body>
     </html>
     `;
-    
     res.send(html);
 });
 
-// 4. Health check endpoint
-app.get('/health', async (req, res) => {
-    try {
-        await pool.query('SELECT 1');
-        res.json({
-            status: 'OK',
-            database: 'connected',
-            timestamp: new Date().toISOString()
-        });
-    } catch (err) {
-        res.status(500).json({
-            status: 'ERROR',
-            database: 'disconnected',
-            error: err.message
-        });
-    }
-});
-
-// 5. Root redirect
-app.get('/', (req, res) => {
-    res.redirect('/toko');
-});
-
-// 6. Start server
+// Port & Server
 const PORT = 3000;
 app.listen(PORT, () => {
-    console.log('\n' + '='.repeat(60));
-    console.log('🚀 SERVER TOKO BUNGA NARATEL DIMULAI');
-    console.log('='.repeat(60));
-    console.log('🌐 Server: http://localhost:' + PORT);
-    console.log('🛒 Toko:   http://localhost:' + PORT + '/toko');
-    console.log('📊 API:    http://localhost:' + PORT + '/api/flowers');
-    console.log('🩺 Health: http://localhost:' + PORT + '/health');
-    console.log('='.repeat(60) + '\n');
+    console.log('🚀 Server Toko Bunga Naratel berjalan di:');
+    console.log('   🌸 http://localhost:' + PORT + '/toko');
+    console.log('   📊 http://localhost:' + PORT + '/api/flowers');
+    console.log('\n💡 Tips: Jika gambar tidak muncul:');
+    console.log('   1. Buka http://localhost:' + PORT + '/api/flowers');
+    console.log('   2. Cek field "gambar" di data JSON');
+    console.log('   3. Pastikan URL gambar valid');
 });
